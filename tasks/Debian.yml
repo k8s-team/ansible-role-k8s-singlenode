@@ -1,0 +1,78 @@
+---
+
+- name: Install dependencies by apt
+  apt:
+    name:
+      - apt-transport-https
+    state: latest
+
+- name: Add apt-key
+  apt_key:
+    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+- name: Add repository
+  apt_repository:
+    # https://packages.cloud.google.com/apt/dists/kubernetes-xenial/main/binary-amd64/Packages
+    repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+
+- name: Install kubelet, kubectl, kubeadm
+  apt:
+    name: [
+      kubelet=1.13.4-00,
+      kubectl=1.13.4-00,
+      kubeadm=1.13.4-00,
+    ]
+
+- name: Check that the admin.conf exists
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_conf
+
+- name: kubeadm init
+  shell: |
+    kubeadm init --pod-network-cidr=192.168.0.0/16 \
+     --apiserver-cert-extra-sans={{ apiServerCertExtraSans }}
+  run_once: yes
+  register: kubeadm_init
+  when: admin_conf.stat.exists == False
+
+- name: Ensures {{ ansible_env.HOME }}/.kube dir exists
+  file:
+    path: "{{ ansible_env.HOME }}/.kube"
+    state: directory
+
+- name: Ensures {{ ansible_env.HOME }}/setup/kubernetes dir exists
+  file:
+    path: "{{ ansible_env.HOME }}/setup/kubernetes"
+    state: directory
+
+- name: Copy admin.conf to home
+  copy:
+    src: /etc/kubernetes/admin.conf
+    remote_src: yes
+    dest: "{{ ansible_env.HOME }}/.kube/config"
+
+- name: Setup stat
+  stat:
+    path: "{{ ansible_env.HOME }}/setup/kubernetes"
+  register: ktl
+
+- name: Copy setup files
+  copy:
+    src: "{{ item }}"
+    dest: "{{ ktl.stat.path}}/{{ item }}"
+  loop:
+    - "rbac-kdd.yaml"
+    - "calico.yaml"
+
+- name: Init cluster
+  k8s:
+    state: present
+    src: "{{ ktl.stat.path }}/{{ item }}"
+  loop:
+    - "rbac-kdd.yaml"
+    - "calico.yaml"
+
+- name: taint nodes
+  shell: kubectl taint nodes --all node-role.kubernetes.io/master-
+  ignore_errors: yes

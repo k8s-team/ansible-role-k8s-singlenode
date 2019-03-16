@@ -1,0 +1,6 @@
+---
+# tasks file for k8s-singlenode
+
+- name: Install k8s-singlenode | (Debian)
+  include_tasks: Debian.yml
+  when: ansible_os_family == "Debian"
